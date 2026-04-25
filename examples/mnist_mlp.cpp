@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -90,6 +91,21 @@ int argmax_logits(const std::vector<const scalar*>& logits) {
     }
     return best_idx;
 }
+
+void print_mnist_ascii(const std::vector<float>& image) {
+    static constexpr int rows = 28;
+    static constexpr int cols = 28;
+    static constexpr const char* shades = " .:-=+*#%@";
+
+    for (int r = 0; r < rows; ++r) {
+        for (int c = 0; c < cols; ++c) {
+            const float v = image[static_cast<std::size_t>(r * cols + c)];
+            const int idx = std::clamp(static_cast<int>(v * 9.f), 0, 9);
+            std::cout << shades[idx];
+        }
+        std::cout << '\n';
+    }
+}
 } // namespace
 
 int main() {
@@ -103,8 +119,8 @@ int main() {
         base + "t10k-labels-idx1-ubyte",
         32);
 
-    mlp net(28 * 28, { 32, 10 });
-    constexpr float lr = 0.01f;
+    mlp net(28 * 28, { 64, 64, 10 });
+    constexpr float lr = 0.05f;
     constexpr int epochs = 100;
 
     for (int epoch = 0; epoch < epochs; ++epoch) {
@@ -140,6 +156,9 @@ int main() {
                   << " train_loss=" << (epoch_loss / static_cast<float>(train.images.size()))
                   << " train_acc=" << (100.f * static_cast<float>(correct) / static_cast<float>(train.images.size()))
                   << "%\n";
+        if (100.f * static_cast<float>(correct) / static_cast<float>(train.images.size()) > 80.f) {
+            break;
+        }
     }
 
     int test_correct = 0;
@@ -157,5 +176,34 @@ int main() {
     std::cout << "test_acc="
               << (100.f * static_cast<float>(test_correct) / static_cast<float>(test.images.size()))
               << "% on " << test.images.size() << " samples\n";
+
+    std::cout << "\nInteractive validation viewer\n";
+    std::cout << "Press Enter/n for next sample, q to quit.\n\n";
+    std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+    for (std::size_t i = 0; i < test.images.size(); ++i) {
+        std::vector<scalar> input;
+        input.reserve(test.images[i].size());
+        for (const float pixel : test.images[i]) {
+            input.emplace_back(pixel, std::vector<scalar*>{}, "px");
+        }
+
+        const auto logits = net(input);
+        const int pred = argmax_logits(logits);
+        const int target = static_cast<int>(test.labels[i]);
+
+        std::cout << "Sample " << i << "/" << (test.images.size() - 1)
+                  << " predicted=" << pred << " target=" << target
+                  << (pred == target ? " [OK]\n" : " [MISS]\n");
+        print_mnist_ascii(test.images[i]);
+        std::cout << "\nnext> ";
+
+        std::string cmd;
+        if (!std::getline(std::cin, cmd)) {
+            break;
+        }
+        if (!cmd.empty() && (cmd[0] == 'q' || cmd[0] == 'Q')) {
+            break;
+        }
+    }
     return 0;
 }
