@@ -12,7 +12,7 @@ int main() {
     res.backward();
 
     const auto* dot_path = "graph.dot";
-    res.dump_dot(dot_path);
+    scalar_graph_viz::dump_dot(res, dot_path);
     std::cout << "Wrote computation graph: " << dot_path << '\n';
     const int rc = std::system("dot -Tpng graph.dot -o graph.png");
     if (rc == 0) {

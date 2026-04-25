@@ -21,11 +21,7 @@
 #include <cstdint>
 #include <string>
 
-// class base_var {
-// public:
-//     virtual ~base_var() = default;
-// };
-class var_graphviz;
+class scalar_graph_viz;
 
 class scalar final {
     using T = float;
@@ -56,7 +52,7 @@ public:
     }
 
     const scalar& operator+(const scalar& rhs) const {
-        const auto add_val = rhs.m_val * m_val;
+        const auto add_val = rhs.m_val + m_val;
         auto res = alloc_and_return(add_val, { (scalar*)this, (scalar*)&rhs}, "+");
         res->m_backward = &scalar::add_backward;
         return *res;
@@ -92,8 +88,6 @@ public:
     void set_val(const T& val) { m_val = val; }
     [[nodiscard]] T value() const { return m_val; }
     [[nodiscard]] T grad() const { return m_grad; }
-    [[nodiscard]] std::string to_dot() const;
-    void dump_dot(const std::string& path) const;
     
     void backward() {
         if (!m_topo.has_value()){
@@ -140,7 +134,7 @@ public:
     }
 
 private:
-    friend class var_graphviz;
+    friend class scalar_graph_viz;
 
     scalar* alloc_and_return(const T& in_val, std::vector<scalar*> children = {}, const char* label = "Const") const {
         auto new_var = new scalar(in_val, std::move(children), label);
@@ -182,7 +176,7 @@ private:
     void (scalar::*m_backward)(){}; 
 };
 
-class var_graphviz final {
+class scalar_graph_viz final {
 public:
     [[nodiscard]] static std::string to_dot(const scalar& root) {
         std::unordered_set<const scalar*> visited;
@@ -255,11 +249,3 @@ private:
         return out;
     }
 };
-
-inline std::string scalar::to_dot() const {
-    return var_graphviz::to_dot(*this);
-}
-
-inline void scalar::dump_dot(const std::string& path) const {
-    var_graphviz::dump_dot(*this, path);
-}
