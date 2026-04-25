@@ -39,3 +39,21 @@
 
 # debug information files
 *.dwo
+
+# CMake and local build trees
+/build/
+/cmake-build-*/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+CTestTestfile.cmake
+Testing/
+CMakeFiles/
+.cmake/
+
+# VS Code / Cursor local project settings
+.vscode/
+
+# Common generated outputs
+*.dot
+*.png
