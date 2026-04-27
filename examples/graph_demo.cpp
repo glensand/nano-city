@@ -1,10 +1,10 @@
-#include "grad.h"
+#include "grad_scalar.h"
 #include <cstdlib>
 #include <iostream>
 
 int main() {
-    scalar x(2, {}, "x");
-    scalar y(6, {}, "y");
+    scalar::scalar x(2, {}, "x");
+    scalar::scalar y(6, {}, "y");
     auto res = x * 2 + y.pow(10) + 10;
 
     // Start reverse pass from the result node.
@@ -12,7 +12,7 @@ int main() {
     res.backward();
 
     const auto* dot_path = "graph.dot";
-    scalar_graph_viz::dump_dot(res, dot_path);
+    scalar::scalar_graph_viz::dump_dot(res, dot_path);
     std::cout << "Wrote computation graph: " << dot_path << '\n';
     const int rc = std::system("dot -Tpng graph.dot -o graph.png");
     if (rc == 0) {

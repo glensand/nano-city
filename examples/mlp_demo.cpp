@@ -1,6 +1,7 @@
-#include "nn.h"
+#include "mlp_scalar.h"
 
 #include <array>
+#include <cassert>
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
@@ -20,7 +21,7 @@ int main() {
     } };
     const std::array<float, 8> ys{ 0.7f, -0.3f, 1.2f, 0.2f, 0.7f, -0.8f, -0.3f, 2.2f };
 
-    mlp net(2, { 8, 4, 1 });
+    scalar::mlp net(2, { 8, 4, 1 });
     constexpr float lr = 0.05f;
     constexpr int steps = 800;
     bool loss_graph_dumped = false;
@@ -28,13 +29,14 @@ int main() {
     for (int step = 0; step < steps; ++step) {
         float total_loss = 0.f;
         for (std::size_t i = 0; i < xs.size(); ++i) {
-            std::vector<scalar> input;
+            std::vector<scalar::scalar> input;
             input.reserve(2);
-            input.emplace_back(xs[i][0], std::vector<scalar*>{}, "x1");
-            input.emplace_back(xs[i][1], std::vector<scalar*>{}, "x2");
+            input.emplace_back(xs[i][0], std::vector<scalar::scalar*>{}, "x1");
+            input.emplace_back(xs[i][1], std::vector<scalar::scalar*>{}, "x2");
 
-            const auto& pred = net.forward_one(input);
-            auto loss = (pred + (-ys[i])).pow(2.f);
+            const auto pred = net.forward_scalar(input);
+            assert(pred.size() == 1);
+            auto loss = ((*pred.front()) + (-ys[i])).pow(2.f);
 
             net.zero_grad();
             loss.set_grad(1.f);
@@ -42,7 +44,7 @@ int main() {
 
             if (!loss_graph_dumped) {
                 const auto* dot_path = "mlp_loss_graph.dot";
-                scalar_graph_viz::dump_dot(loss, dot_path);
+                scalar::scalar_graph_viz::dump_dot(loss, dot_path);
                 std::cout << "Wrote loss computation graph: " << dot_path << '\n';
                 const int rc = std::system("dot -Tpng mlp_loss_graph.dot -o mlp_loss_graph.png");
                 if (rc == 0) {
@@ -67,13 +69,13 @@ int main() {
     float mae = 0.f;
     std::cout << "\nPredictions after training:\n";
     for (std::size_t i = 0; i < xs.size(); ++i) {
-        std::vector<scalar> input;
+        std::vector<float> input;
         input.reserve(2);
-        input.emplace_back(xs[i][0], std::vector<scalar*>{}, "x1");
-        input.emplace_back(xs[i][1], std::vector<scalar*>{}, "x2");
-        const auto& pred = net.forward_one(input);
-        mae += std::fabs(pred.value() - ys[i]);
-        std::cout << "[" << xs[i][0] << ", " << xs[i][1] << "] -> " << pred.value()
+        input.emplace_back(xs[i][0]);
+        input.emplace_back(xs[i][1]);
+        const auto pred = net.forward_one(input);
+        mae += std::fabs(pred - ys[i]);
+        std::cout << "[" << xs[i][0] << ", " << xs[i][1] << "] -> " << pred
                   << " (target=" << ys[i] << ")\n";
     }
     std::cout << "MAE: " << (mae / static_cast<float>(xs.size())) << '\n';

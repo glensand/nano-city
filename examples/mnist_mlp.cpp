@@ -1,6 +1,7 @@
-#include "nn.h"
+#include "mlp_scalar_static.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <fstream>
 #include <iostream>
@@ -80,12 +81,38 @@ mnist_data load_mnist(
     return data;
 }
 
-int argmax_logits(const std::vector<const scalar*>& logits) {
+std::pair<mnist_data, mnist_data> split_dataset(const mnist_data& full, const float train_ratio) {
+    assert(train_ratio > 0.f && train_ratio < 1.f);
+    const std::size_t total = full.images.size();
+    const std::size_t train_count = static_cast<std::size_t>(static_cast<float>(total) * train_ratio);
+
+    mnist_data train;
+    mnist_data eval;
+
+    train.images.reserve(train_count);
+    train.labels.reserve(train_count);
+    eval.images.reserve(total - train_count);
+    eval.labels.reserve(total - train_count);
+
+    for (std::size_t i = 0; i < total; ++i) {
+        if (i < train_count) {
+            train.images.push_back(full.images[i]);
+            train.labels.push_back(full.labels[i]);
+        } else {
+            eval.images.push_back(full.images[i]);
+            eval.labels.push_back(full.labels[i]);
+        }
+    }
+
+    return { std::move(train), std::move(eval) };
+}
+
+int argmax_logits(const std::vector<float>& logits) {
     int best_idx = 0;
-    float best_val = logits.front()->value();
+    float best_val = logits.front();
     for (int i = 1; i < static_cast<int>(logits.size()); ++i) {
-        if (logits[static_cast<std::size_t>(i)]->value() > best_val) {
-            best_val = logits[static_cast<std::size_t>(i)]->value();
+        if (logits[static_cast<std::size_t>(i)] > best_val) {
+            best_val = logits[static_cast<std::size_t>(i)];
             best_idx = i;
         }
     }
@@ -109,85 +136,87 @@ void print_mnist_ascii(const std::vector<float>& image) {
 } // namespace
 
 int main() {
+    using clock_t = std::chrono::steady_clock;
+    using ms_t = std::chrono::duration<double, std::milli>;
+
     const std::string base = "data/mnist/";
-    const auto train = load_mnist(
+    const auto load_start = clock_t::now();
+    const auto full = load_mnist(
         base + "train-images-idx3-ubyte",
         base + "train-labels-idx1-ubyte",
-        64);
-    const auto test = load_mnist(
-        base + "t10k-images-idx3-ubyte",
-        base + "t10k-labels-idx1-ubyte",
-        32);
+        192);
+    const auto [train, test] = split_dataset(full, 0.7f);
+    const auto load_end = clock_t::now();
+    std::cout << "[trace] mnist_load_ms=" << ms_t(load_end - load_start).count() << '\n';
 
-    mlp net(28 * 28, { 64, 64, 10 });
+    scalar_static::mlp net(28 * 28, { 32, 32, 10 });
     constexpr float lr = 0.05f;
     constexpr int epochs = 100;
 
     for (int epoch = 0; epoch < epochs; ++epoch) {
+        const auto epoch_start = clock_t::now();
         float epoch_loss = 0.f;
         int correct = 0;
+        double forward_loss_ms = 0.0;
+        double backward_ms = 0.0;
+        double step_ms = 0.0;
 
         for (std::size_t i = 0; i < train.images.size(); ++i) {
-            std::vector<scalar> input;
-            input.reserve(train.images[i].size());
-            for (const float pixel : train.images[i]) {
-                input.emplace_back(pixel, std::vector<scalar*>{}, "px");
-            }
+            const auto forward_start = clock_t::now();
+            const auto loss = net.forward_loss(train.images[i], train.labels[i]);
+            const auto& logits = net.forward(train.images[i]);
+            const auto forward_end = clock_t::now();
+            forward_loss_ms += ms_t(forward_end - forward_start).count();
 
-            const auto logits = net(input);
-            scalar loss(0.f, std::vector<scalar*>{}, "loss");
-            const scalar* total = &loss;
-            for (std::size_t c = 0; c < logits.size(); ++c) {
-                const float target = (c == train.labels[i]) ? 1.f : 0.f;
-                total = &((*total) + (((*logits[c]) + (-target)).pow(2.f)));
-            }
+            const auto backward_start = clock_t::now();
+            net.set_loss_grad(1.f);
+            net.backward();
+            const auto backward_end = clock_t::now();
+            backward_ms += ms_t(backward_end - backward_start).count();
 
-            auto* loss_root = const_cast<scalar*>(total);
-            net.zero_grad();
-            loss_root->set_grad(1.f);
-            loss_root->backward();
-            net.step(lr);
+            const auto step_start = clock_t::now();
+            net.step(lr); 
+            const auto step_end = clock_t::now();
+            step_ms += ms_t(step_end - step_start).count();
 
-            epoch_loss += total->value();
+            epoch_loss += loss;
             correct += (argmax_logits(logits) == static_cast<int>(train.labels[i])) ? 1 : 0;
         }
+        const auto epoch_end = clock_t::now();
 
         std::cout << "epoch=" << epoch
                   << " train_loss=" << (epoch_loss / static_cast<float>(train.images.size()))
                   << " train_acc=" << (100.f * static_cast<float>(correct) / static_cast<float>(train.images.size()))
-                  << "%\n";
-        if (100.f * static_cast<float>(correct) / static_cast<float>(train.images.size()) > 80.f) {
+                  << "%\n"
+                  << "[trace] epoch=" << epoch
+                  << " total_ms=" << ms_t(epoch_end - epoch_start).count()
+                  << " forward_loss_ms=" << forward_loss_ms
+                  << " backward_ms=" << backward_ms
+                  << " step_ms=" << step_ms
+                  << '\n';
+        if (100.f * static_cast<float>(correct) / static_cast<float>(train.images.size()) > 90.f) {
             break;
         }
     }
 
+    const auto test_eval_start = clock_t::now();
     int test_correct = 0;
     for (std::size_t i = 0; i < test.images.size(); ++i) {
-        std::vector<scalar> input;
-        input.reserve(test.images[i].size());
-        for (const float pixel : test.images[i]) {
-            input.emplace_back(pixel, std::vector<scalar*>{}, "px");
-        }
-
-        const auto logits = net(input);
+        const auto& logits = net.forward(test.images[i]);
         test_correct += (argmax_logits(logits) == static_cast<int>(test.labels[i])) ? 1 : 0;
     }
+    const auto test_eval_end = clock_t::now();
 
     std::cout << "test_acc="
               << (100.f * static_cast<float>(test_correct) / static_cast<float>(test.images.size()))
-              << "% on " << test.images.size() << " samples\n";
+              << "% on " << test.images.size() << " samples\n"
+              << "[trace] test_eval_ms=" << ms_t(test_eval_end - test_eval_start).count() << '\n';
 
     std::cout << "\nInteractive validation viewer\n";
     std::cout << "Press Enter/n for next sample, q to quit.\n\n";
     std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
     for (std::size_t i = 0; i < test.images.size(); ++i) {
-        std::vector<scalar> input;
-        input.reserve(test.images[i].size());
-        for (const float pixel : test.images[i]) {
-            input.emplace_back(pixel, std::vector<scalar*>{}, "px");
-        }
-
-        const auto logits = net(input);
+        const auto& logits = net.forward(test.images[i]);
         const int pred = argmax_logits(logits);
         const int target = static_cast<int>(test.labels[i]);
 

@@ -1,11 +1,11 @@
-#include "grad.h"
+#include "grad_scalar.h"
 #include <cmath>
 #include <iostream>
 
 namespace {
 float f(float x, float y) {
-    scalar sx(x, {}, "x");
-    scalar sy(y, {}, "y");
+    scalar::scalar sx(x, {}, "x");
+    scalar::scalar sy(y, {}, "y");
     auto out = sx * sy + sx.pow(3.f) + sy.relu();
     return out.value();
 }
@@ -20,8 +20,8 @@ int main() {
     constexpr float y0 = -0.7f;
     constexpr float eps = 1e-3f;
 
-    scalar x(x0, {}, "x");
-    scalar y(y0, {}, "y");
+    scalar::scalar x(x0, {}, "x");
+    scalar::scalar y(y0, {}, "y");
     auto out = x * y + x.pow(3.f) + y.relu();
     out.set_grad(1.f);
     out.backward();
