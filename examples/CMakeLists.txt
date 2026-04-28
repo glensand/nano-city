@@ -6,6 +6,7 @@ set(EXAMPLE_SOURCES
     gradient_validation.cpp
     mlp_demo.cpp
     mnist_mlp.cpp
+    mnist_tensor_autograd.cpp
 )
 
 foreach(example_src IN LISTS EXAMPLE_SOURCES)
